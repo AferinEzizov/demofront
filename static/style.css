@@ -1,0 +1,276 @@
+/* style.css */
+
+:root {
+  --color-cyan: #00ffff;
+  --color-cyan-dark: #00bfbf;
+  --color-ok: #00ffc8;
+  --color-error: #ff4a4a;
+  --color-processing: #0090b2;
+  --bg-pitchblack: #111218;
+  --bg-navbar: #15161e;
+  --bg-advanced: #23242e;
+  --text-cyan: #00ffff;
+  --text-light: #f1f1f1;
+  --highlight: #00ffff;
+  --transition: 0.2s cubic-bezier(.4,0,.2,1);
+  --border: #22232a;
+  --shadow: 0 2px 20px rgba(0,255,255,0.04);
+  --th-radius: 8px;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-pitchblack);
+  color: var(--text-light);
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  font-size: 16px;
+  box-sizing: border-box;
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-navbar);
+  color: var(--text-cyan);
+  padding: 1em 2em;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: var(--shadow);
+  border-bottom: 1px solid var(--border);
+}
+
+.status {
+  padding: 0.3em 1em;
+  border-radius: 14px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  margin-right: 0.6em;
+  font-size: 0.95em;
+  transition: var(--transition);
+  background: var(--bg-pitchblack);
+  color: var(--color-cyan);
+  border: 1px solid var(--color-cyan-dark);
+}
+.status.ok {
+  background: var(--color-ok);
+  color: #111218;
+  border-color: var(--color-ok);
+}
+.status.error {
+  background: var(--color-error);
+  color: #fff;
+  border-color: var(--color-error);
+}
+.status.processing {
+  background: var(--color-processing);
+  color: #fff;
+  border-color: var(--color-processing);
+}
+
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+button {
+  background: none;
+  color: var(--color-cyan);
+  border: 1.5px solid var(--color-cyan-dark);
+  padding: 0.35em 1em;
+  margin: 0;
+  font-size: 1em;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border 0.18s;
+  outline: none;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+button:hover, button:focus-visible {
+  background: var(--color-cyan-dark);
+  color: #111218;
+  border-color: var(--color-cyan);
+}
+
+#startBtn {
+  background: var(--color-cyan);
+  color: #1c222a;
+  border: none;
+  font-weight: 600;
+  margin-left: 1em;
+}
+#startBtn:hover {
+  background: #00e0e0;
+  color: #101014;
+}
+
+/* Animated border for advanced menu */
+.advanced-menu {
+  display: none;
+  padding: 1em 2em;
+  background: var(--bg-advanced);
+  color: var(--text-cyan);
+  position: relative;
+  border-radius: 12px;
+  animation: fadeIn 0.2s forwards;
+  margin: 0 2em 1em 2em;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  box-shadow: 0 0 0 0 var(--color-cyan);
+}
+.advanced-menu.animated-border {
+  animation: borderGlow 1.2s linear infinite, fadeIn 0.2s forwards;
+  border-image: linear-gradient(90deg, var(--color-cyan) 0%, var(--color-cyan-dark) 100%);
+  border-image-slice: 1;
+  box-shadow: 0 0 16px 2px var(--color-cyan-dark);
+}
+
+@keyframes borderGlow {
+  0% {
+    box-shadow: 0 0 8px 2px var(--color-cyan-dark), 0 0 0 0 var(--color-cyan-dark) inset;
+    border-color: var(--color-cyan);
+  }
+  50% {
+    box-shadow: 0 0 22px 6px var(--color-cyan), 0 0 0 0 var(--color-cyan-dark) inset;
+    border-color: var(--color-cyan-dark);
+  }
+  100% {
+    box-shadow: 0 0 8px 2px var(--color-cyan-dark), 0 0 0 0 var(--color-cyan-dark) inset;
+    border-color: var(--color-cyan);
+  }
+}
+
+.advanced-menu label {
+  display: block;
+  margin-bottom: 0.45em;
+  font-size: 0.96em;
+  color: var(--text-cyan);
+}
+.advanced-menu input, .advanced-menu select {
+  background: #17191f;
+  border: 1px solid var(--color-cyan-dark);
+  color: var(--text-cyan);
+  padding: 0.3em 0.7em;
+  border-radius: 5px;
+  font-size: 1em;
+  margin-left: 0.4em;
+  margin-top: 0.12em;
+  margin-bottom: 0.12em;
+  transition: border 0.18s;
+}
+.advanced-menu input:focus, .advanced-menu select:focus {
+  border-color: var(--color-cyan);
+  outline: none;
+}
+
+#table-container {
+  overflow-x: auto;
+  margin: 2em auto 1.5em auto;
+  max-width: 96vw;
+  min-height: 180px;
+  border-radius: 16px;
+  background: var(--bg-navbar);
+  box-shadow: var(--shadow);
+  border: 1.5px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: transparent;
+  color: var(--text-cyan);
+  font-size: 0.97em;
+  letter-spacing: 0.01em;
+  border-radius: var(--th-radius);
+  overflow: hidden;
+  transition: box-shadow 0.18s;
+}
+
+th, td {
+  padding: 0.7em 1.1em;
+  border-bottom: 1px solid #22242a;
+  text-align: left;
+  background: none;
+  transition: background 0.16s;
+}
+
+th {
+  background: #181a22;
+  font-weight: 600;
+  color: var(--color-cyan);
+  position: relative;
+  user-select: none;
+  cursor: grab;
+  border-top: 1px solid var(--color-cyan-dark);
+}
+
+th.dragging {
+  opacity: 0.47;
+  border: 2.5px dashed var(--color-cyan);
+  cursor: grabbing;
+}
+
+th.drag-over {
+  background: #20242a;
+}
+
+.resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+  border-radius: 0 8px 8px 0;
+  transition: background 0.12s;
+}
+.resize-handle:hover {
+  background: var(--color-cyan-dark);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+td {
+  background: transparent;
+  color: var(--text-light);
+  font-weight: 400;
+}
+
+.pagination {
+  margin: 0.5em auto 2em auto;
+  text-align: center;
+  color: var(--text-cyan);
+  font-size: 1em;
+}
+
+.pagination button {
+  background: none;
+  color: var(--color-cyan);
+  border: 1px solid var(--color-cyan-dark);
+  padding: 0.33em 1.1em;
+  border-radius: 6px;
+  margin: 0 0.5em;
+  font-size: 0.96em;
+}
+.pagination button:hover, .pagination button:focus {
+  background: var(--color-cyan-dark);
+  color: #181a22;
+  border-color: var(--color-cyan);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px);}
+  to { opacity: 1; transform: translateY(0);}
+}
+
