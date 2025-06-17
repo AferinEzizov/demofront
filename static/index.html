@@ -1,43 +1,163 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Interactive Table UI</title>
-  <!-- Link to the external CSS file -->
-  <link rel="stylesheet" href="static/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetch to Zip Microservice Client</title>
+    <link rel="stylesheet" href="style.css"> <!-- Link to external CSS -->
 </head>
 <body>
-  <div class="navbar">
-    <div>
-      <span class="status ok" id="status">OK</span>
-    </div>
-    <div class="navbar-actions">
-      <span>Task ID: <span id="task_id" style="color:var(--color-cyan);">N/A</span></span>
-      <button id="startBtn">Start Process</button>
-      <button id="downloadBtn" style="display:none;">Download</button>
-      <button id="toggleAdvBtn" title="Show advanced">&#9881;</button>
-    </div>
-  </div>
-  <div class="advanced-menu" id="advancedMenu">
-    <label>Temp Dir: <input type="text" id="tempDirInput" /></label>
-    <label>Normalization Type:
-      <select id="normalizationTypeSelect">
-        <option>Min-Max</option>
-        <option>Z-Score</option>
-      </select>
-    </label>
-    <label>Rate Limit: <input type="number" min="1" max="100" id="rateLimitInput" /></label>
-  </div>
-  <div id="table-container"></div>
-  <div class="pagination">
-    <button onclick="prevPage()">Prev</button>
-    Page <span id="page">1</span>
-    <button onclick="nextPage()">Next</button>
-  </div>
+    <div id="notifications-container"></div>
 
-  <!-- Link to the external JavaScript file -->
-  <script src="static/script.js"></script>
+    <div class="sidebar">
+        <h2>Microservice Menu</h2>
+        <ul>
+            <li><a href="#" class="nav-link active" data-tab="inputs-section">Inputs & Table</a></li>
+            <li><a href="#" class="nav-link" data-tab="configure-section">Configure</a></li>
+            <li><a href="#" class="nav-link" data-tab="task-history-section">Task History</a></li>
+        </ul>
+    </div>
+
+    <div class="main-content">
+        <!-- Inputs & Table Section -->
+        <div id="inputs-section" class="tab-content active">
+            <div class="container">
+                <h1>Data Management & Processing</h1>
+                <p>Manage your data inputs. You can rename columns by double-clicking their headers and reorder them by dragging and dropping. **Remember to click 'Save Column Changes to Backend' after making changes to persist them.**</p>
+
+                <h3>Live Data Table (from 3001/api/data)</h3>
+                <div class="table-toolbar">
+                    <button onclick="refreshDataTable()">Refresh Table Data</button>
+                    <button onclick="updateBackendInputs()">Save Column Changes to Backend</button>
+                </div>
+                <div class="spinner-container" id="table-spinner" style="display:none;">
+                    <div class="spinner"></div>
+                </div>
+                <table id="dataTable">
+                    <thead>
+                        <tr id="tableHeaderRow"></tr>
+                    </thead>
+                    <tbody>
+                        <!-- Data will be loaded here -->
+                    </tbody>
+                </table>
+                <div class="pagination-controls">
+                    <label for="rowsPerPage">Rows per page:</label>
+                    <select id="rowsPerPage" onchange="changeRowsPerPage()">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                    <button onclick="prevPage()" id="prevPageBtn">Previous</button>
+                    <span id="pageInfo"></span>
+                    <button onclick="nextPage()" id="nextPageBtn">Next</button>
+                </div>
+
+                <hr class="separator">
+
+                <h3>Process Actions (for current inputs)</h3>
+                <div class="process-actions-navbar">
+                    <button onclick="startProcessingTask()">Start New Process</button>
+                    <button onclick="getTaskStatusFromInput()">Check Task Status</button>
+                    <button class="danger" onclick="cancelTaskFromInput()">Cancel Active Task</button>
+                    <button onclick="downloadFileFromInput()">Download Last Result</button>
+                    <input type="text" id="activeTaskIdInput" placeholder="Enter Task ID for actions" title="Enter Task ID for status, cancel, download">
+                </div>
+                <pre id="processActionOutput"></pre>
+
+                <hr class="separator">
+
+                <h3>Advanced Input Management</h3>
+                <h4>Add/Update Single Input:</h4>
+                <div>
+                    <label for="singleInputName">Input Name:</label>
+                    <input type="text" id="singleInputName" placeholder="e.g., product_id">
+                    <label for="singleInputColumn">Column Index (optional, 0-based, from original data):</label>
+                    <input type="number" id="singleInputColumn" placeholder="e.g., 0">
+                    <label for="singleInputChangeOrder">Display Order (optional, 0-based):</label>
+                    <input type="number" id="singleInputChangeOrder" placeholder="e.g., 0">
+                    <button onclick="addOrUpdateSingleInput()">Add/Update Single Input</button>
+                    <pre id="singleInputOutput"></pre>
+                </div>
+
+                <h4>Add Bulk Inputs:</h4>
+                <div>
+                    <label for="bulkInputs">JSON Array of Inputs:</label>
+                    <textarea id="bulkInputs" rows="8" placeholder='[{"name": "id", "column": 0, "change_order": 0}, {"name": "product", "column": 1, "change_order": 1}]'></textarea>
+                    <button onclick="addBulkInputs()">Add Bulk Inputs</button>
+                    <pre id="bulkInputOutput"></pre>
+                </div>
+
+                <h4>Backend Input Status:</h4>
+                <button onclick="listAllInputs()">List All Stored Inputs</button>
+                <pre id="inputsListOutput"></pre>
+                
+                <h4>Clear All Backend Inputs:</h4>
+                <button class="danger" onclick="clearAllInputs()">Clear All Stored Inputs</button>
+                <pre id="clearInputsOutput"></pre>
+            </div>
+        </div>
+
+        <!-- Configuration Section -->
+        <div id="configure-section" class="tab-content">
+            <div class="container">
+                <h1>Configuration Settings</h1>
+                <p>Set the global processing and export configuration for the microservice.</p>
+                <div>
+                    <label for="fileType">File Type (optional):</label>
+                    <input type="text" id="fileType" placeholder="e.g., csv, json">
+                    <label for="tmpDir">Temporary Directory (optional):</label>
+                    <input type="text" id="tmpDir" placeholder="e.g., /tmp/mydata">
+                    <label for="rateLimit">Rate Limit (optional):</label>
+                    <input type="number" id="rateLimit" placeholder="e.g., 100">
+                    <label for="pageLimit">Page Limit (optional):</label>
+                    <input type="number" id="pageLimit" placeholder="e.g., 1000">
+                    <label for="dbUrl">Database URL (optional):</label>
+                    <input type="text" id="dbUrl" placeholder="e.g., sqlite:///./test.db">
+                    <button onclick="configureService()">Configure Service</button>
+                </div>
+                <pre id="configureOutput"></pre>
+            </div>
+        </div>
+
+        <!-- Task History Section -->
+        <div id="task-history-section" class="tab-content">
+            <div class="container">
+                <h1>Task History & Status Polling</h1>
+                <p>Monitor the status of your processing tasks here. Enter a Task ID to check its status or manage polling.</p>
+
+                <h3>Check Individual Task Status:</h3>
+                <div>
+                    <label for="taskIdStatus">Task ID:</label>
+                    <input type="text" id="taskIdStatus" placeholder="Enter Task ID">
+                    <button onclick="getTaskStatusPolling()">Get Status & Poll</button>
+                </div>
+                <pre id="taskStatusOutput"></pre>
+                <div id="statusPolling" class="task-status" style="display: none;">
+                    <p>Polling for status updates... <button onclick="stopPolling()">Stop Polling</button></p>
+                </div>
+
+                <h3>Cancel Task (Advanced):</h3>
+                <div>
+                    <label for="taskIdCancel">Task ID:</label>
+                    <input type="text" id="taskIdCancel" placeholder="Enter Task ID to Cancel">
+                    <button class="danger" onclick="cancelTaskExplicit()">Cancel Task</button>
+                </div>
+                <pre id="cancelTaskOutput"></pre>
+
+                <h3>Download File (Advanced):</h3>
+                <div>
+                    <label for="taskIdDownload">Task ID:</label>
+                    <input type="text" id="taskIdDownload" placeholder="Enter Task ID to Download">
+                    <button onclick="downloadFileExplicit()">Download File</button>
+                </div>
+                <pre id="downloadOutput"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script> <!-- Link to external JS -->
 </body>
 </html>
 

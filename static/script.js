@@ -1,444 +1,741 @@
-// script.js
+const BASE_URL = 'http://127.0.0.1:8000/api/export'; // Your FastAPI microservice
+const DATA_SOURCE_URL = 'http://127.0.0.1:3001/api/data'; // Your separate data server
 
-// --- Configurable ---
-const pageSize = 25;
+let currentTableData = []; // Stores all fetched data from 3001/api/data
+let currentColumnOrder = []; // Stores the ordered list of original column names (e.g., ['id', 'name', 'value'])
+let headerMap = new Map(); // Maps original column name to current display name (e.g., 'id' -> 'Product ID')
+
+// Pagination state
 let currentPage = 1;
-let data = [];
-let columns = [];
-let originalColumns = []; // Keep track of original column order and names
-let dragSrcIndex = null;
-let colWidths = {}; // store column widths
-let ws = null; // WebSocket object
-let currentTaskId = 'N/A'; // Stores the current task ID
+let rowsPerPage = 10;
+let totalRows = 0;
+let lastStartedTaskId = null; // To store the task ID of the last started process
 
-// Base URL for initial data fetch (from port 3001)
-const DATA_API_BASE_URL = 'http://127.0.0.1:3001/api';
-// Base URL for all other export-related API interactions (to port 8080 with /api/export prefix)
-const EXPORT_API_BASE_URL = 'http://127.0.0.1:8080/api/export';
-
-// --- Status Helper ---
-function setStatus(type, txt) {
-  const s = document.getElementById("status");
-  s.textContent = txt;
-  s.className = "status " + type;
-}
-
-// --- Fetch Data ---
-async function fetchData() {
-  setStatus('processing', 'Loading data...');
-  try {
-    // Fetch data from the DATA_API_BASE_URL and the '/data' endpoint
-    const res = await fetch(`${DATA_API_BASE_URL}/data`);
-    if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-        columns = Object.keys(data[0]);
-        originalColumns = [...columns]; // Store original column order
-    } else {
-        columns = []; // Ensure columns is empty if no data
-        originalColumns = [];
-        setStatus('error', 'No data to display');
-        return; // Exit if no data
-    }
-    setStatus('ok', 'OK');
-    renderTable();
-  } catch (error) {
-    console.error("Error fetching data:", error);
-    setStatus('error', 'Error fetching data');
-    // Fallback to mock data if API fetch fails
-    data = [
-        { "id": 1, "name": "Alice", "age": 30, "city": "New York", "occupation": "Engineer" },
-        { "id": 2, "name": "Bob", "age": 24, "city": "Los Angeles", "occupation": "Designer" },
-        { "id": 3, "name": "Charlie", "age": 35, "city": "Chicago", "occupation": "Doctor" },
-        { "id": 4, "name": "Diana", "age": 28, "city": "Houston", "occupation": "Artist" },
-        { "id": 5, "name": "Eve", "age": 22, "city": "Phoenix", "occupation": "Student" },
-        { "id": 6, "name": "Frank", "age": 40, "city": "Philadelphia", "occupation": "Manager" },
-        { "id": 7, "name": "Grace", "age": 29, "city": "San Antonio", "occupation": "Analyst" },
-        { "id": 8, "name": "Heidi", "age": 31, "city": "San Diego", "occupation": "Developer" },
-        { "id": 9, "name": "Ivan", "age": 26, "city": "Dallas", "occupation": "Consultant" },
-        { "id": 10, "name": "Judy", "age": 33, "city": "San Jose", "occupation": "Architect" },
-        { "id": 11, "name": "Kyle", "age": 27, "city": "Austin", "occupation": "Scientist" },
-        { "id": 12, "name": "Liam", "age": 38, "city": "Jacksonville", "occupation": "Accountant" },
-        { "id": 13, "name": "Mia", "age": 23, "city": "Fort Worth", "occupation": "Writer" },
-        { "id": 14, "name": "Noah", "age": 30, "city": "Columbus", "occupation": "Editor" },
-        { "id": 15, "name": "Olivia", "age": 25, "city": "Charlotte", "occupation": "Researcher" },
-        { "id": 16, "name": "Peter", "age": 32, "city": "San Francisco", "occupation": "Marketer" },
-        { "id": 17, "name": "Quinn", "age": 29, "city": "Indianapolis", "occupation": "Recruiter" },
-        { "id": 18, "name": "Rachel", "age": 34, "city": "Seattle", "occupation": "Librarian" },
-        { "id": 19, "name": "Sam", "age": 27, "city": "Denver", "occupation": "Photographer" },
-        { "id": 20, "name": "Tina", "age": 31, "city": "Washington", "occupation": "Nurse" },
-        { "id": 21, "name": "Uma", "age": 26, "city": "Boston", "occupation": "Therapist" },
-        { "id": 22, "name": "Victor", "age": 39, "city": "El Paso", "occupation": "Electrician" },
-        { "id": 23, "name": "Wendy", "age": 24, "city": "Detroit", "occupation": "Mechanic" },
-        { "id": 24, "name": "Xavier", "age": 30, "city": "Nashville", "occupation": "Plumber" },
-        { "id": 25, "name": "Yara", "age": 28, "city": "Memphis", "occupation": "Chef" },
-        { "id": 26, "name": "Zane", "age": 33, "city": "Portland", "occupation": "Pilot" },
-        { "id": 27, "name": "Anna", "age": 22, "city": "Oklahoma City", "occupation": "Student" },
-        { "id": 28, "name": "Ben", "age": 41, "city": "Las Vegas", "occupation": "Engineer" },
-        { "id": 29, "name": "Chloe", "age": 29, "city": "Louisville", "occupation": "Designer" },
-        { "id": 30, "name": "David", "age": 36, "city": "Baltimore", "occupation": "Doctor" }
-    ];
-    if (data.length > 0) {
-        columns = Object.keys(data[0]);
-        originalColumns = [...columns]; // Store original column order
-        setStatus('processing', 'Loaded with fallback data');
-    } else {
-        columns = [];
-        originalColumns = [];
-        setStatus('error', 'No fallback data');
-    }
-    renderTable();
-  }
-}
-
-// --- Helper function to get original column index ---
-function getOriginalColumnIndex(columnName) {
-  return originalColumns.indexOf(columnName);
-}
-
-// --- Render Table ---
-function renderTable() {
-  const container = document.getElementById("table-container");
-  const start = (currentPage - 1) * pageSize;
-  const pageData = data.slice(start, start + pageSize);
-
-  if (!columns.length) {
-    container.innerHTML = "<div style='padding:2em;text-align:center;color:var(--text-cyan);'>No data to display. Please ensure your data API is running.</div>";
-    document.getElementById("page").textContent = currentPage; // Still show current page
-    return;
-  }
-
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-
-  columns.forEach((col, index) => {
-    const th = document.createElement("th");
-    th.textContent = col;
-    th.setAttribute("draggable", true);
-
-    // Set column width if resized
-    if (colWidths[col]) {
-      th.style.width = colWidths[col] + 'px';
-    }
-
-    // Store the original column index for API calls
-    th.dataset.originalColumnIndex = getOriginalColumnIndex(col);
-    th.dataset.currentDisplayName = col;
-
-    // --- Drag & Drop logic ---
-    th.addEventListener("dragstart", (e) => {
-      dragSrcIndex = index;
-      e.dataTransfer.setData("text/plain", ""); // Required for Firefox
-      th.classList.add('dragging');
-    });
-    th.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      th.classList.add('drag-over');
-    });
-    th.addEventListener("dragleave", (e) => {
-      th.classList.remove('drag-over');
-    });
-    th.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      th.classList.remove('drag-over');
-      document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
-      if (dragSrcIndex !== null && dragSrcIndex !== index) {
-        const movedColumnName = columns[dragSrcIndex]; // Get the name of the column being moved
-        const originalIndex = getOriginalColumnIndex(movedColumnName);
-        const moved = columns.splice(dragSrcIndex, 1)[0];
-        columns.splice(index, 0, moved);
-        renderTable(); // Re-render table with new column order
-
-        // Send column reorder to API - use the original index, not the current display index
-        await sendColumnReorderToAPI(movedColumnName, originalIndex, index);
-        dragSrcIndex = null;
-      }
-    });
-    th.addEventListener("dragend", (e) => {
-      th.classList.remove('dragging');
-      document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-      dragSrcIndex = null;
-    });
-
-    // --- Column Resize ---
-    const handle = document.createElement('div');
-    handle.className = 'resize-handle';
-    handle.addEventListener('mousedown', function(e) {
-      e.stopPropagation();
-      startResize(e, th, col);
-    });
-    th.appendChild(handle);
-
-    // --- Double-click to rename column ---
-    th.title = "Double-click to rename";
-    th.addEventListener('dblclick', function(e) {
-      e.preventDefault();
-      th.setAttribute("contenteditable", true);
-      th.focus();
-    });
-    th.addEventListener('blur', async function(e) {
-      let newName = th.textContent.trim();
-      const originalDisplayName = th.dataset.currentDisplayName;
-      const originalIndex = th.dataset.originalColumnIndex;
-
-      // Check if the new name is different, not empty, and not a duplicate of existing display names
-      if (newName && newName !== originalDisplayName && !columns.some((c, i) => c === newName && i !== columns.indexOf(originalDisplayName))) {
-        // Update the columns array with the new name
-        const currentLogicalIndex = columns.indexOf(originalDisplayName);
-        if (currentLogicalIndex !== -1) {
-            columns[currentLogicalIndex] = newName;
-            th.dataset.currentDisplayName = newName;
-            
-            // Update colWidths entry if needed
-            if (colWidths[originalDisplayName]) {
-                colWidths[newName] = colWidths[originalDisplayName];
-                delete colWidths[originalDisplayName];
-            }
-            
-            renderTable(); // Re-render to reflect header change
-            
-            // Send column rename to API - send both original name and new name
-            await sendColumnRenameToAPI(originalDisplayName, newName);
-        }
-      } else {
-        th.textContent = originalDisplayName; // revert to original name if invalid or duplicate
-      }
-      th.removeAttribute("contenteditable");
-    });
-    th.addEventListener('keydown', function(e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        th.blur();
-      }
-    });
-
-    headerRow.appendChild(th);
-  });
-
-  thead.appendChild(headerRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  pageData.forEach(row => {
-    const tr = document.createElement("tr");
-    columns.forEach(col => {
-      const td = document.createElement("td");
-      // Use the 'col' from the reordered 'columns' array to access data
-      td.textContent = row[col] !== undefined ? row[col] : "";
-      // Set cell width to match header if resized
-      if (colWidths[col]) {
-        td.style.width = colWidths[col] + 'px';
-      }
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-
-  container.innerHTML = "";
-  container.appendChild(table);
-
-  document.getElementById("page").textContent = currentPage;
-}
-
-// --- Column Resize Logic ---
-let resizingCol = null;
-let startX = 0;
-let startWidth = 0;
-
-function startResize(e, th, colName) {
-  resizingCol = { th, colName };
-  startX = e.clientX;
-  startWidth = th.offsetWidth;
-  document.body.style.cursor = 'col-resize';
-  document.addEventListener('mousemove', resizeCol);
-  document.addEventListener('mouseup', stopResize);
-}
-
-function resizeCol(e) {
-  if (!resizingCol) return;
-  let diff = e.clientX - startX;
-  let newWidth = Math.max(48, startWidth + diff); // min width 48px
-  colWidths[resizingCol.colName] = newWidth;
-  // Re-render only the affected column's width to avoid full table redraw during drag
-  resizingCol.th.style.width = newWidth + 'px';
-}
-
-function stopResize(e) {
-  if (!resizingCol) return; // Prevent error if stopResize called without startResize
-  resizingCol = null;
-  document.body.style.cursor = '';
-  document.removeEventListener('mousemove', resizeCol);
-  document.removeEventListener('mouseup', stopResize);
-  renderTable(); // Re-render table to apply final widths to all cells consistently
-}
-
-// --- Pagination ---
-function nextPage() {
-  if ((currentPage * pageSize) < data.length) {
-    currentPage++;
-    renderTable();
-  }
-}
-function prevPage() {
-  if (currentPage > 1) {
-    currentPage--;
-    renderTable();
-  }
-}
-
-// --- API Interactions ---
-
-// Sends column reorder to the FastAPI /input endpoint
-async function sendColumnReorderToAPI(columnName, originalIndex, newOrder) {
-    const params = {
-        name: columnName,
-        column: originalIndex, // Corrected from 'coloumn' to 'column'
-        change_order: newOrder
-    };
-    const queryParams = new URLSearchParams(params).toString();
-    
-    try {
-        const response = await fetch(`${EXPORT_API_BASE_URL}/input?${queryParams}`);
-        if (!response.ok) {
-            throw new Error(`Failed to send column reorder: ${response.statusText}`);
-        }
-        const result = await response.json();
-        console.log("Column reorder sent to API:", result);
-        setStatus('processing', 'Column reordered on server');
-        setTimeout(() => {
-            if (document.getElementById("status").textContent === "Column reordered on server") {
-                setStatus('ok', 'OK');
-            }
-        }, 1500);
-    } catch (error) {
-        console.error("Error sending column reorder to API:", error);
-        setStatus('error', 'Error reordering column');
-    }
-}
-
-// Sends column rename to the FastAPI /input endpoint
-async function sendColumnRenameToAPI(originalDisplayName, newName) { // Added originalDisplayName parameter
-    const params = {
-        name: originalDisplayName, // Use 'name' for the original column name
-        new_name: newName
-    };
-    const queryParams = new URLSearchParams(params).toString();
-    
-    try {
-        const response = await fetch(`${EXPORT_API_BASE_URL}/input?${queryParams}`);
-        if (!response.ok) {
-            throw new Error(`Failed to send column rename: ${response.statusText}`);
-        }
-        const result = await response.json();
-        console.log("Column rename sent to API:", result);
-        setStatus('processing', 'Column renamed on server');
-        setTimeout(() => {
-            if (document.getElementById("status").textContent === "Column renamed on server") {
-                setStatus('ok', 'OK');
-            }
-        }, 1500);
-    } catch (error) {
-        console.error("Error sending column rename to API:", error);
-        setStatus('error', 'Error renaming column');
-    }
-}
-
-// Initiates the processing on the FastAPI backend
-async function startProcessing() {
-    setStatus('processing', 'Starting process...');
-    document.getElementById('startBtn').disabled = true; // Disable button while processing
-    document.getElementById('downloadBtn').style.display = 'none'; // Hide download button
-
-    try {
-        // Send to EXPORT_API_BASE_URL
-        const response = await fetch(`${EXPORT_API_BASE_URL}/start`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to start process: ${response.statusText}`);
-        }
-        const result = await response.json();
-        currentTaskId = result.task_id;
-        document.getElementById('task_id').textContent = currentTaskId;
-        console.log("Process started with Task ID:", currentTaskId);
-        setupWebSocket(currentTaskId); // Establish WebSocket connection
-    } catch (error) {
-        console.error("Error starting process:", error);
-        setStatus('error', 'Failed to start process');
-        document.getElementById('startBtn').disabled = false; // Re-enable button on error
-    }
-}
-
-// Sets up the WebSocket connection for real-time status updates
-function setupWebSocket(task_id) {
-    if (ws) {
-        ws.close(); // Close existing connection if any
-    }
-    // WebSocket URL uses EXPORT_API_BASE_URL's host and path, replacing http with ws
-    const wsUrl = EXPORT_API_BASE_URL.replace('http://', 'ws://') + `/ws/${task_id}`;
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-        console.log(`WebSocket connected for task ${task_id}`);
-        setStatus('processing', 'Connected to process');
-    };
-
-    ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        console.log("WebSocket message:", message);
-        if (message.status) {
-            setStatus(message.status, message.message);
-            if (message.status === "completed") { // Matches "completed" from FastAPI
-                document.getElementById('downloadBtn').style.display = 'inline-block';
-                document.getElementById('downloadBtn').onclick = () => {
-                    window.location.href = `${EXPORT_API_BASE_URL}/download/${currentTaskId}`;
-                };
-                document.getElementById('startBtn').disabled = false;
-            } else if (message.status === "failed") { // Matches "failed" from FastAPI
-                document.getElementById('startBtn').disabled = false;
-            }
-        }
-    };
-
-    ws.onclose = () => {
-        console.log(`WebSocket disconnected for task ${task_id}`);
-        // Only update status if it was actively processing or connected, not if already in error/ok state
-        if (document.getElementById("status").className.includes("processing")) {
-            setStatus('error', 'Disconnected from process');
-        }
-    };
-
-    ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        setStatus('error', 'WebSocket Error');
-    };
-}
-
-// --- Toggle Advanced Menu ---
-function toggleAdvanced() {
-  const menu = document.getElementById("advancedMenu");
-  // const toggleButton = document.getElementById("toggleAdvBtn"); // This variable is not used
-  if (menu.style.display === "block") {
-    menu.style.display = "none";
-    menu.classList.remove("animated-border");
-  } else {
-    menu.style.display = "block";
-    menu.classList.add("animated-border");
-  }
-}
-
-// --- Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
-  fetchData(); // Load initial data
-  document.getElementById('startBtn').addEventListener('click', startProcessing);
-  document.getElementById('toggleAdvBtn').addEventListener('click', toggleAdvanced);
+    rowsPerPage = parseInt(document.getElementById('rowsPerPage').value);
+    loadInitialDataAndHeaders();
+    setupNavigation();
 });
 
-// Initial fetch when the page loads
-fetchData();
+function setupNavigation() {
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelectorAll('.nav-link').forEach(nav => nav.classList.remove('active'));
+            this.classList.add('active');
+
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            const targetTab = this.dataset.tab;
+            document.getElementById(targetTab).classList.add('active');
+        });
+    });
+}
+
+// Notification System
+function showNotification(message, type = 'success', duration = 4000) {
+    const container = document.getElementById('notifications-container');
+    const notification = document.createElement('div');
+    notification.classList.add('notification', type); // Use type as class directly
+    notification.textContent = message;
+
+    requestAnimationFrame(() => {
+        notification.classList.add('notification-enter-active');
+    });
+
+    container.appendChild(notification);
+
+    setTimeout(() => {
+        notification.classList.remove('notification-enter-active');
+        notification.classList.add('notification-leave-active');
+        notification.addEventListener('transitionend', () => {
+            notification.remove();
+        }, { once: true });
+    }, duration);
+}
+
+/**
+ * Generic function to fetch data from API endpoints.
+ * Includes error handling and notification display.
+ * @param {string} url - The API endpoint URL.
+ * @param {string} method - HTTP method (GET, POST, DELETE).
+ * @param {object|null} body - Request body for POST/PUT.
+ * @returns {Promise<object>} - A promise that resolves to the JSON response data or an error object.
+ */
+async function fetchData(url, method = 'GET', body = null) {
+    try {
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        };
+        if (body) {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, options);
+
+        // Check if the response is JSON
+        const contentType = response.headers.get('content-type');
+        let data;
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // If not JSON, read as text and include in error message
+            const text = await response.text();
+            console.error(`Non-JSON response from ${url}:`, text);
+            if (!response.ok) {
+                showNotification(`API Error (${response.status}): Non-JSON response. Details: ${text.substring(0, 100)}...`, 'error', 7000); // Show part of the text
+                throw new Error(`Non-JSON response (status: ${response.status}): ${text}`);
+            }
+            // If it's OK but not JSON (e.g., empty 200 OK), still return something
+            return { message: text || "OK (Non-JSON or empty response)" };
+        }
+
+        if (!response.ok) {
+            const errorMessage = data.detail ? (Array.isArray(data.detail) ? data.detail.map(d => d.msg).join(', ') : data.detail) : JSON.stringify(data);
+            showNotification(`API Error (${response.status}): ${errorMessage}`, 'error');
+            throw new Error(errorMessage);
+        }
+        return data;
+    } catch (error) {
+        console.error('Fetch Error:', error);
+        // Notification already shown for API errors or general network issues
+        return { error: error.message };
+    }
+}
+
+/**
+ * Loads initial data from the source (3001/api/data) and column configurations
+ * from the backend microservice (api/export/inputs-list).
+ * Initializes the table and column order/names.
+ */
+async function loadInitialDataAndHeaders() {
+    const tableSpinner = document.getElementById('table-spinner');
+    tableSpinner.style.display = 'flex'; // Show spinner
+
+    // 1. Fetch data from the external source
+    const dataResult = await fetchData(DATA_SOURCE_URL);
+    if (dataResult.error) {
+        document.getElementById('dataTable').innerHTML = `<tbody><tr><td colspan="100%">Error loading data: ${dataResult.error}</td></tr></tbody>`;
+        tableSpinner.style.display = 'none'; // Hide spinner
+        return;
+    }
+    currentTableData = dataResult;
+    totalRows = currentTableData.length;
+    currentPage = 1; // Reset to first page on new data load
+
+    // 2. Fetch column configurations from our backend
+    const inputsResult = await fetchData(`${BASE_URL}/inputs-list`);
+    if (inputsResult.error) {
+        // If backend inputs fail, use keys from dataResult for default order
+        if (currentTableData.length > 0) {
+            currentColumnOrder = Object.keys(currentTableData[0]);
+            currentColumnOrder.forEach(colName => headerMap.set(colName, colName)); // Initialize map with original names
+            showNotification("Failed to fetch backend inputs. Displaying data with default column order.", "info");
+        }
+    } else {
+        let backendInputs = inputsResult.inputs || [];
+        // Sort inputs by change_order to get the display order
+        let sortedInputs = [...backendInputs].sort((a, b) => (a.change_order ?? Infinity) - (b.change_order ?? Infinity));
+
+        if (sortedInputs.length === 0 && currentTableData.length > 0) {
+            // If backend has no inputs but we have data, infer and initialize backend
+            currentColumnOrder = Object.keys(currentTableData[0]);
+            const inferredInputs = currentColumnOrder.map((name, index) => ({
+                name: name,
+                column: null, // Initial column can be null as it's for display
+                change_order: index
+            }));
+            const updateResult = await fetchData(`${BASE_URL}/bulk-inputs`, 'POST', inferredInputs);
+            if (updateResult.error) {
+                console.error("Failed to initialize backend inputs:", updateResult.error);
+                showNotification("Failed to initialize backend inputs with inferred data.", "error");
+            } else {
+                showNotification("Backend inputs initialized from fetched data.", "success");
+            }
+        } else {
+            currentColumnOrder = sortedInputs.map(input => input.name);
+        }
+
+        // Populate headerMap with current names from backend
+        // This ensures renamed columns are loaded correctly
+        backendInputs.forEach(input => {
+            if (input.name) { // Ensure name exists
+                headerMap.set(input.name, input.name); // Default to its own name
+            }
+        });
+        // Reconcile headerMap with actual data keys to ensure all columns in data are covered
+        if (currentTableData.length > 0) {
+            Object.keys(currentTableData[0]).forEach(key => {
+                if (!headerMap.has(key)) {
+                    headerMap.set(key, key); // Add any missing original data columns to map
+                }
+            });
+        }
+    }
+
+    populateTable(currentTableData, currentColumnOrder);
+    tableSpinner.style.display = 'none'; // Hide spinner
+}
+
+/**
+ * Populates the data table with data, respecting pagination and current column order/names.
+ * @param {Array<object>} data - The full dataset to display.
+ * @param {Array<string>|null} columnOrder - The ordered list of original column names for display.
+ */
+function populateTable(data, columnOrder = null) {
+    const tableHead = document.querySelector('#dataTable thead');
+    const tableBody = document.querySelector('#dataTable tbody');
+    const headerRow = document.getElementById('tableHeaderRow');
+
+    // Remove old event listeners to prevent memory leaks and duplicate behavior
+    const oldHeaders = headerRow.querySelectorAll('th');
+    oldHeaders.forEach(th => {
+        th.removeEventListener('dragstart', handleDragStart);
+        th.removeEventListener('dragover', handleDragOver);
+        th.removeEventListener('drop', handleDrop);
+        th.removeEventListener('dragend', handleDragEnd);
+        const input = th.querySelector('input[type="text"]');
+        if (input) {
+            input.removeEventListener('dblclick', handleDblClick);
+            input.removeEventListener('blur', handleBlur);
+            input.removeEventListener('keydown', handleKeyDown);
+        }
+    });
+
+    headerRow.innerHTML = ''; // Clear existing headers
+    tableBody.innerHTML = ''; // Clear existing rows
+
+    if (data.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="100%">No data available.</td></tr>';
+        renderPaginationControls();
+        return;
+    }
+
+    let actualColumnOrder = columnOrder || Object.keys(data[0]);
+    
+    // Filter out columns not present in the *first* row of data (important for consistency)
+    const availableColumnsInFirstRow = Object.keys(data[0]);
+    actualColumnOrder = actualColumnOrder.filter(col => availableColumnsInFirstRow.includes(col));
+    currentColumnOrder = actualColumnOrder; // Update global currentColumnOrder based on filtered, active columns
+
+    // Ensure headerMap is consistent with actualColumnOrder
+    actualColumnOrder.forEach(colName => {
+        if (!headerMap.has(colName)) {
+            headerMap.set(colName, colName); // Add if not present, assume original name is also display name initially
+        }
+    });
+
+    // Create headers
+    currentColumnOrder.forEach((originalColName, index) => {
+        const th = document.createElement('th');
+        th.setAttribute('data-original-name', originalColName); // Store original name for data lookup
+        th.setAttribute('draggable', 'true');
+        th.setAttribute('data-column-index', index); // Store current display index
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = headerMap.get(originalColName) || originalColName; // Use mapped display name or original
+        input.readOnly = true; // Read-only by default
+
+        input.addEventListener('dblclick', handleDblClick);
+        input.addEventListener('blur', handleBlur);
+        input.addEventListener('keydown', handleKeyDown);
+
+        th.appendChild(input);
+        headerRow.appendChild(th);
+    });
+
+    addDragDropListeners(); // Re-add listeners for newly created headers
+
+    // Pagination logic for rows
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
+    const paginatedData = data.slice(startIndex, endIndex);
+
+    // Populate table body
+    paginatedData.forEach(rowData => {
+        const tr = document.createElement('tr');
+        currentColumnOrder.forEach(originalColName => { // Use the current display order
+            const td = document.createElement('td');
+            // Use the original column name to get data from rowData
+            td.textContent = rowData[originalColName] !== undefined ? rowData[originalColName] : '';
+            tr.appendChild(td);
+        });
+        tableBody.appendChild(tr);
+    });
+    renderPaginationControls();
+}
+
+/**
+ * Handlers for header input editing
+ */
+function handleDblClick() {
+    this.readOnly = false;
+    this.focus();
+}
+
+function handleBlur() {
+    this.readOnly = true;
+    const newDisplayName = this.value.trim();
+    const th = this.closest('th');
+    const originalName = th.getAttribute('data-original-name');
+
+    if (headerMap.get(originalName) !== newDisplayName && newDisplayName !== '') {
+        headerMap.set(originalName, newDisplayName); // Update map
+        showNotification(`Column '${originalName}' display name changed to '${newDisplayName}'. Click 'Save Column Changes to Backend' to persist.`, 'info');
+    } else if (newDisplayName === '') {
+        // Revert to previous display name if empty
+        this.value = headerMap.get(originalName) || originalName;
+        showNotification("Column name cannot be empty. Reverted to previous name.", "warning");
+    }
+}
+
+function handleKeyDown(event) {
+    if (event.key === 'Enter') {
+        this.blur(); // Trigger blur on Enter key
+    }
+}
+
+
+/**
+ * Adds drag and drop event listeners to table header cells.
+ */
+let dragTargetTh = null; // The th element being dragged
+
+function addDragDropListeners() {
+    const headerRow = document.getElementById('tableHeaderRow');
+    const allHeaders = headerRow.querySelectorAll('th');
+
+    allHeaders.forEach(th => {
+        th.addEventListener('dragstart', handleDragStart);
+        th.addEventListener('dragover', handleDragOver);
+        th.addEventListener('drop', handleDrop);
+        th.addEventListener('dragend', handleDragEnd);
+    });
+}
+
+function handleDragStart(e) {
+    const targetTh = e.target.closest('th');
+    if (targetTh) {
+        dragTargetTh = targetTh;
+        e.dataTransfer.effectAllowed = 'move';
+        dragTargetTh.classList.add('dragging');
+        // Set a transparent drag image
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='; // Transparent 1x1 gif
+        e.dataTransfer.setDragImage(img, 0, 0);
+    }
+}
+
+function handleDragOver(e) {
+    e.preventDefault(); // Necessary to allow dropping
+    e.dataTransfer.dropEffect = 'move';
+    const targetTh = e.target.closest('th');
+
+    if (dragTargetTh && targetTh && targetTh !== dragTargetTh) {
+        const headerRow = document.getElementById('tableHeaderRow');
+        const headerChildren = Array.from(headerRow.children);
+        const dragIndex = headerChildren.indexOf(dragTargetTh);
+        const dropIndex = headerChildren.indexOf(targetTh);
+
+        if (dragIndex < dropIndex) {
+            headerRow.insertBefore(dragTargetTh, targetTh.nextSibling);
+        } else {
+            headerRow.insertBefore(dragTargetTh, targetTh);
+        }
+        // Update the `data-column-index` attributes and `currentColumnOrder` immediately
+        // for visual reordering. The full table re-render happens only on drop.
+        updateColumnOrderFromDOM();
+        
+        // Re-render table body to match new header order dynamically
+        const tableBody = document.querySelector('#dataTable tbody');
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
+        const paginatedData = currentTableData.slice(startIndex, endIndex);
+
+        tableBody.innerHTML = ''; // Clear current body
+        paginatedData.forEach(rowData => {
+            const tr = document.createElement('tr');
+            currentColumnOrder.forEach(originalColName => {
+                const td = document.createElement('td');
+                td.textContent = rowData[originalColName] !== undefined ? rowData[originalColName] : '';
+                tr.appendChild(td);
+            });
+            tableBody.appendChild(tr);
+        });
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    if (dragTargetTh) {
+        dragTargetTh.classList.remove('dragging');
+        // `updateColumnOrderFromDOM` was already called in `dragover` for visual update.
+        showNotification("Columns reordered! Click 'Save Column Changes to Backend' to persist.", "info");
+    }
+    dragTargetTh = null;
+}
+
+function handleDragEnd(e) {
+    document.querySelectorAll('th.dragging').forEach(th => th.classList.remove('dragging'));
+    dragTargetTh = null;
+    // After drag ends, ensure the table is fully consistent with the new order in case dragover didn't trigger a full re-render
+    populateTable(currentTableData, currentColumnOrder);
+}
+
+
+/**
+ * Updates `currentColumnOrder` and `data-column-index` attributes based on the current DOM order of headers.
+ */
+function updateColumnOrderFromDOM() {
+    const headerCells = Array.from(document.querySelectorAll('#tableHeaderRow th'));
+    // Map current DOM order of th elements to their original column names
+    currentColumnOrder = headerCells.map(th => th.getAttribute('data-original-name'));
+
+    // Re-assign data-column-index based on new DOM order
+    headerCells.forEach((th, index) => {
+        th.setAttribute('data-column-index', index);
+    });
+}
+
+/**
+ * Sends the current state of column names (from headerMap) and order (from currentColumnOrder)
+ * to the backend's /bulk-inputs endpoint.
+ */
+async function updateBackendInputs() {
+    const inputsToUpdate = currentColumnOrder.map((originalName, index) => {
+        // Use the display name from headerMap, or fall back to original name
+        const displayName = headerMap.get(originalName) || originalName;
+        return {
+            name: displayName,
+            column: null, // 'column' is specific to the original data index, not display. Setting to null as per schema for new/updated inputs.
+            change_order: index // This is the new display order (0-based)
+        };
+    });
+
+    const result = await fetchData(`${BASE_URL}/bulk-inputs`, 'POST', inputsToUpdate);
+    const outputElement = document.getElementById('updateBackendInputsOutput');
+    if (result.error) {
+        outputElement.textContent = `Error updating backend inputs: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification('Backend inputs updated successfully!', 'success');
+        console.log('Backend Inputs Updated:', result);
+        // Re-load to ensure full consistency, especially if other users change inputs
+        refreshDataTable();
+    }
+}
+
+async function refreshDataTable() {
+    await loadInitialDataAndHeaders();
+}
+
+// Pagination Functions
+function renderPaginationControls() {
+    const totalPages = Math.ceil(totalRows / rowsPerPage);
+    document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${totalRows} rows)`;
+    document.getElementById('prevPageBtn').disabled = currentPage === 1;
+    document.getElementById('nextPageBtn').disabled = currentPage === totalPages || totalPages === 0;
+}
+
+function nextPage() {
+    const totalPages = Math.ceil(totalRows / rowsPerPage);
+    if (currentPage < totalPages) {
+        currentPage++;
+        populateTable(currentTableData, currentColumnOrder);
+    }
+}
+
+function prevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        populateTable(currentTableData, currentColumnOrder);
+    }
+}
+
+function changeRowsPerPage() {
+    rowsPerPage = parseInt(document.getElementById('rowsPerPage').value);
+    currentPage = 1; // Reset to first page
+    populateTable(currentTableData, currentColumnOrder);
+}
+
+// --- API Functions for Advanced Input Management ---
+
+async function addOrUpdateSingleInput() {
+    const name = document.getElementById('singleInputName').value.trim();
+    const columnStr = document.getElementById('singleInputColumn').value.trim();
+    const changeOrderStr = document.getElementById('singleInputChangeOrder').value.trim();
+
+    if (!name) {
+        showNotification('Input Name is required for single input.', 'error');
+        return;
+    }
+
+    const inputData = { name: name };
+    // Use null for optional fields if empty string
+    inputData.column = columnStr !== '' ? parseInt(columnStr, 10) : null;
+    inputData.change_order = changeOrderStr !== '' ? parseInt(changeOrderStr, 10) : null;
+
+    const result = await fetchData(`${BASE_URL}/inputs`, 'POST', inputData);
+    const outputElement = document.getElementById('singleInputOutput');
+    if (result.error) {
+        outputElement.textContent = `Error adding/updating single input: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification('Single input added/updated successfully!', 'success');
+        // Clear input fields after successful addition/update
+        document.getElementById('singleInputName').value = '';
+        document.getElementById('singleInputColumn').value = '';
+        document.getElementById('singleInputChangeOrder').value = '';
+        refreshDataTable(); // Refresh table to reflect changes
+    }
+}
+
+async function addBulkInputs() {
+    const bulkInputsText = document.getElementById('bulkInputs').value.trim();
+    const outputElement = document.getElementById('bulkInputOutput');
+    try {
+        const inputsData = JSON.parse(bulkInputsText);
+        if (!Array.isArray(inputsData)) {
+            showNotification('Input for bulk operation must be a JSON array.', 'error');
+            outputElement.textContent = 'Error: Input must be a JSON array.';
+            return;
+        }
+
+        // Ensure optional fields are correctly null for bulk inputs
+        inputsData.forEach(input => {
+            if (input.column === undefined || input.column === '') input.column = null;
+            if (input.change_order === undefined || input.change_order === '') input.change_order = null;
+        });
+
+        const result = await fetchData(`${BASE_URL}/bulk-inputs`, 'POST', inputsData);
+        if (result.error) {
+            outputElement.textContent = `Error adding bulk inputs: ${result.error}`;
+        } else {
+            outputElement.textContent = JSON.stringify(result, null, 2);
+            showNotification('Bulk inputs added/updated successfully!', 'success');
+            document.getElementById('bulkInputs').value = ''; // Clear textarea
+            refreshDataTable(); // Refresh table to reflect changes
+        }
+    } catch (e) {
+        showNotification(`Invalid JSON format for bulk inputs: ${e.message}`, 'error');
+        outputElement.textContent = `Invalid JSON format for bulk inputs: ${e.message}`;
+    }
+}
+
+async function listAllInputs() {
+    const result = await fetchData(`${BASE_URL}/inputs-list`);
+    const outputElement = document.getElementById('inputsListOutput');
+    if (result.error) {
+        outputElement.textContent = `Error: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification('Backend inputs listed successfully!', 'info');
+    }
+}
+
+async function clearAllInputs() {
+    const result = await fetchData(`${BASE_URL}/inputs-clear`, 'DELETE');
+    const outputElement = document.getElementById('clearInputsOutput');
+    if (result.error) {
+        outputElement.textContent = `Error clearing inputs: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification('All backend inputs cleared successfully!', 'success');
+        // Clear headerMap and currentColumnOrder, then refresh table
+        headerMap.clear();
+        currentColumnOrder = [];
+        refreshDataTable();
+    }
+}
+
+// --- Configuration Functions ---
+
+async function configureService() {
+    const fileType = document.getElementById('fileType').value.trim();
+    const tmpDir = document.getElementById('tmpDir').value.trim();
+    const rateLimit = document.getElementById('rateLimit').value.trim();
+    const pageLimit = document.getElementById('pageLimit').value.trim();
+    const dbUrl = document.getElementById('dbUrl').value.trim();
+
+    const configData = {};
+    if (fileType) configData.file_type = fileType;
+    if (tmpDir) configData.tmp_dir = tmpDir;
+    if (rateLimit !== '') configData.rate_limit = parseInt(rateLimit, 10);
+    if (pageLimit !== '') configData.page_limit = parseInt(pageLimit, 10);
+    if (dbUrl) configData.db_url = dbUrl;
+
+    const result = await fetchData(`${BASE_URL}/configure`, 'POST', configData);
+    const outputElement = document.getElementById('configureOutput');
+    if (result.error) {
+        outputElement.textContent = `Error configuring: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification('Configuration set successfully!', 'success');
+    }
+}
+
+// --- Process Management Functions (Unified for Table Navbar & Task History Tab) ---
+
+let pollingInterval;
+let activePollingTaskId = ''; // Keep track of the task ID currently being polled
+
+/**
+ * Handles starting a new processing task.
+ * Called from the "Process Actions" navbar on the table.
+ */
+async function startProcessingTask() {
+    const result = await fetchData(`${BASE_URL}/start`, 'POST');
+    const outputElement = document.getElementById('processActionOutput'); // Output to navbar pre tag
+    if (result.error) {
+        outputElement.textContent = `Error starting task: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        lastStartedTaskId = result.task_id; // Store the ID
+        document.getElementById('activeTaskIdInput').value = lastStartedTaskId; // Update the input field in navbar
+        showNotification(`Processing started! Task ID: ${lastStartedTaskId}`, 'success');
+    }
+}
+
+/**
+ * Retrieves task status from the input field in the table navbar.
+ */
+async function getTaskStatusFromInput() {
+    const taskId = document.getElementById('activeTaskIdInput').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID in the text field to check status.', 'error');
+        return;
+    }
+    const result = await fetchData(`${BASE_URL}/status/${taskId}`);
+    const outputElement = document.getElementById('processActionOutput');
+    if (result.error) {
+        outputElement.textContent = `Error getting status: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification(`Status for Task ${taskId}: ${result.status}`, 'info');
+    }
+}
+
+/**
+ * Retrieves task status and starts polling for a given task ID.
+ * Called from the Task History tab.
+ */
+async function getTaskStatusPolling() {
+    const taskId = document.getElementById('taskIdStatus').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID to start polling.', 'error');
+        return;
+    }
+    activePollingTaskId = taskId; // Set the task ID for polling
+    document.getElementById('statusPolling').style.display = 'flex'; // Show polling indicator
+
+    // Initial check
+    const result = await fetchData(`${BASE_URL}/status/${taskId}`);
+    const outputElement = document.getElementById('taskStatusOutput');
+    if (result.error) {
+        outputElement.textContent = `Error getting status: ${result.error}`;
+        stopPolling();
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification(`Status for Task ${taskId}: ${result.status}`, 'info');
+        if (result.status === 'completed' || result.status === 'failed' || result.status === 'cancelled') {
+            stopPolling(); // Stop if task is finished
+        } else {
+            // Start polling if not already finished
+            if (pollingInterval) clearInterval(pollingInterval); // Clear previous interval
+            pollingInterval = setInterval(async () => {
+                const pollResult = await fetchData(`${BASE_URL}/status/${activePollingTaskId}`);
+                if (pollResult.error) {
+                    outputElement.textContent = `Error during polling for ${activePollingTaskId}: ${pollResult.error}`;
+                    stopPolling();
+                } else {
+                    outputElement.textContent = JSON.stringify(pollResult, null, 2);
+                    if (pollResult.status === 'completed' || pollResult.status === 'failed' || pollResult.status === 'cancelled') {
+                        stopPolling();
+                        showNotification(`Task ${activePollingTaskId} ${pollResult.status}!`, pollResult.status === 'completed' ? 'success' : 'error');
+                    }
+                }
+            }, 3000); // Poll every 3 seconds
+        }
+    }
+}
+
+function stopPolling() {
+    clearInterval(pollingInterval);
+    document.getElementById('statusPolling').style.display = 'none';
+    activePollingTaskId = ''; // Clear active polling task ID
+    showNotification('Polling stopped.', 'info');
+}
+
+/**
+ * Handles canceling a task from the input field in the table navbar.
+ */
+async function cancelTaskFromInput() {
+    const taskId = document.getElementById('activeTaskIdInput').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID in the text field to cancel.', 'error');
+        return;
+    }
+    const result = await fetchData(`${BASE_URL}/cancel/${taskId}`, 'DELETE');
+    const outputElement = document.getElementById('processActionOutput');
+    if (result.error) {
+        outputElement.textContent = `Error cancelling task: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification(`Task ${taskId} cancellation requested.`, 'info');
+    }
+}
+
+/**
+ * Handles canceling a task from the input field in the Task History tab.
+ */
+async function cancelTaskExplicit() {
+    const taskId = document.getElementById('taskIdCancel').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID to cancel.', 'error');
+        return;
+    }
+    const result = await fetchData(`${BASE_URL}/cancel/${taskId}`, 'DELETE');
+    const outputElement = document.getElementById('cancelTaskOutput');
+    if (result.error) {
+        outputElement.textContent = `Error cancelling task: ${result.error}`;
+    } else {
+        outputElement.textContent = JSON.stringify(result, null, 2);
+        showNotification(`Task ${taskId} cancellation requested.`, 'info');
+    }
+}
+
+/**
+ * Handles downloading a file from the input field in the table navbar.
+ */
+async function downloadFileFromInput() {
+    const taskId = document.getElementById('activeTaskIdInput').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID in the text field to download.', 'error');
+        return;
+    }
+    const downloadUrl = `${BASE_URL}/download/${taskId}`;
+    window.open(downloadUrl, '_blank');
+    document.getElementById('processActionOutput').textContent = `Attempted to download from: ${downloadUrl}`;
+    showNotification(`Attempting to download file for Task ID: ${taskId}`, 'info');
+}
+
+/**
+ * Handles downloading a file from the input field in the Task History tab.
+ */
+async function downloadFileExplicit() {
+    const taskId = document.getElementById('taskIdDownload').value.trim();
+    if (!taskId) {
+        showNotification('Please enter a Task ID to download.', 'error');
+        return;
+    }
+    const downloadUrl = `${BASE_URL}/download/${taskId}`;
+    window.open(downloadUrl, '_blank');
+    document.getElementById('downloadOutput').textContent = `Attempted to download from: ${downloadUrl}`;
+    showNotification(`Attempting to download file for Task ID: ${taskId}`, 'info');
+}
 
